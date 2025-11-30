@@ -1,0 +1,30 @@
+[project]
+name = "run-on-my-laptop"
+version = "0.1.0"
+description = "Testing SoTA AI models on Dell XPS 15 9520 (RTX 3050 4GB)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "torch",
+    "torchvision",
+    "torchaudio",
+    "accelerate>=1.12.0",
+    "librosa>=0.11.0",
+    "matplotlib>=3.10.7",
+    "openai-whisper>=20250625",
+    "opencv-python>=4.12.0.88",
+    "pillow>=12.0.0",
+    "soundfile>=0.13.1",
+    "transformers>=4.57.3",
+    "nemo-toolkit[all]>=2.1.0",
+]
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch" }
+torchvision = { index = "pytorch" }
+torchaudio = { index = "pytorch" }
