@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(systeminfo:*)",
+      "Bash(findstr:*)",
+      "Bash(wmic cpu:*)",
+      "Bash(wmic path win32_VideoController get name:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
