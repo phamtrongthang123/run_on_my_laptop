@@ -1,0 +1,25 @@
+# Build directories
+build/
+cmake-build-*/
+
+# Model files (large)
+*.pt
+*.pte
+*.bin
+models/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Compiled
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Generated
+compile_commands.json

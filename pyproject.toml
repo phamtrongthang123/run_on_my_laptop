@@ -1,23 +1,13 @@
 [project]
-name = "run-on-my-laptop"
+name = "whisper-standalone"
 version = "0.1.0"
-description = "Testing SoTA AI models on Dell XPS 15 9520 (RTX 3050 4GB)"
+description = "Standalone Whisper speech-to-text"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dependencies = [
     "torch",
-    "torchvision",
     "torchaudio",
-    "accelerate>=1.12.0",
-    "huggingface-hub>=0.28.0",
-    "librosa>=0.11.0",
-    "matplotlib>=3.10.7",
     "openai-whisper>=20250625",
-    "opencv-python>=4.12.0.88",
-    "pillow>=12.0.0",
-    "soundfile>=0.13.1",
-    "transformers>=4.57.3",
-    "nemo-toolkit[all]>=2.1.0",
 ]
 
 [[tool.uv.index]]
@@ -27,5 +17,4 @@ explicit = true
 
 [tool.uv.sources]
 torch = { index = "pytorch" }
-torchvision = { index = "pytorch" }
 torchaudio = { index = "pytorch" }
