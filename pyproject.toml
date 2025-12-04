@@ -1,13 +1,14 @@
 [project]
 name = "whisper-standalone"
 version = "0.1.0"
-description = "Standalone Whisper speech-to-text"
+description = "Standalone Whisper speech-to-text with ExecuTorch"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "torch",
+    "torch>=2.4.0",
     "torchaudio",
     "openai-whisper>=20250625",
+    "executorch>=0.4.0",
 ]
 
 [[tool.uv.index]]

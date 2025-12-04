@@ -13,18 +13,22 @@
 #include <vector>
 #include <chrono>
 #include <filesystem>
+#include <cstring>
 
 #include "audio.h"
 #include "tokenizer.h"
 
-// Try to use ExecuTorch, fallback to LibTorch
 #ifdef USE_EXECUTORCH
-    #include <executorch/runtime/executor/program.h>
-    #include <executorch/runtime/executor/method.h>
-    #include <executorch/runtime/core/evalue.h>
-    #include <executorch/extension/data_loader/file_data_loader.h>
+    // ExecuTorch headers
+    #include <executorch/extension/module/module.h>
+    #include <executorch/extension/tensor/tensor.h>
+    #include <executorch/runtime/core/exec_aten/exec_aten.h>
     #define INFERENCE_BACKEND "ExecuTorch"
+    
+    namespace et = executorch::extension;
+    namespace runtime = executorch::runtime;
 #else
+    // LibTorch headers
     #include <torch/script.h>
     #include <torch/torch.h>
     #define INFERENCE_BACKEND "LibTorch"
@@ -91,7 +95,7 @@ Config parse_args(int argc, char* argv[]) {
                      << "  -v, --verbose         Verbose output\n"
                      << "  -h, --help            Show this help message\n\n"
                      << "Example:\n"
-                     << "  whisper -i audio.wav -o result.json -m whisper.pte\n";
+                     << "  whisper -i audio.wav -m models/whisper.pte -o result.json\n";
             exit(0);
         }
     }
@@ -173,63 +177,156 @@ void write_json_output(const std::string& path, const TranscriptionResult& resul
 }
 
 #ifdef USE_EXECUTORCH
-// ExecuTorch inference
+// ExecuTorch inference implementation
 class WhisperModelET {
 public:
+    WhisperModelET() = default;
+    ~WhisperModelET() = default;
+    
     bool load(const std::string& encoder_path, const std::string& decoder_path) {
-        // Load encoder
-        auto encoder_loader = executorch::extension::FileDataLoader::from(encoder_path.c_str());
-        if (!encoder_loader.ok()) {
+        std::cout << "Loading encoder: " << encoder_path << std::endl;
+        encoder_ = std::make_unique<et::Module>(encoder_path);
+        if (!encoder_->is_loaded()) {
             std::cerr << "Failed to load encoder: " << encoder_path << std::endl;
             return false;
         }
         
-        auto encoder_program = executorch::runtime::Program::load(&encoder_loader.get());
-        if (!encoder_program.ok()) {
-            std::cerr << "Failed to create encoder program" << std::endl;
-            return false;
-        }
-        encoder_program_ = std::move(encoder_program.get());
-        
-        // Load decoder
-        auto decoder_loader = executorch::extension::FileDataLoader::from(decoder_path.c_str());
-        if (!decoder_loader.ok()) {
+        std::cout << "Loading decoder: " << decoder_path << std::endl;
+        decoder_ = std::make_unique<et::Module>(decoder_path);
+        if (!decoder_->is_loaded()) {
             std::cerr << "Failed to load decoder: " << decoder_path << std::endl;
             return false;
         }
         
-        auto decoder_program = executorch::runtime::Program::load(&decoder_loader.get());
-        if (!decoder_program.ok()) {
-            std::cerr << "Failed to create decoder program" << std::endl;
-            return false;
-        }
-        decoder_program_ = std::move(decoder_program.get());
-        
+        loaded_ = true;
         return true;
     }
     
-    std::vector<float> encode(const std::vector<float>& mel, int n_mels, int n_frames) {
-        // Implementation would use ExecuTorch API
-        // This is a placeholder
-        std::vector<float> features(1500 * 512);  // Example dimensions
+    // Encode audio mel spectrogram to features
+    std::vector<float> encode(const std::vector<float>& mel_data, int n_mels, int n_frames) {
+        // Create input tensor: shape (1, n_mels, n_frames)
+        std::vector<int32_t> input_shape = {1, n_mels, n_frames};
+        auto input_tensor = et::from_blob(
+            const_cast<float*>(mel_data.data()),
+            input_shape,
+            runtime::ScalarType::Float
+        );
+        
+        // Run encoder
+        auto result = encoder_->forward({input_tensor});
+        if (!result.ok()) {
+            std::cerr << "Encoder forward failed" << std::endl;
+            return {};
+        }
+        
+        // Extract output tensor
+        auto& outputs = result.get();
+        if (outputs.empty()) {
+            std::cerr << "Encoder returned no outputs" << std::endl;
+            return {};
+        }
+        
+        auto& output_evalue = outputs[0];
+        if (!output_evalue.isTensor()) {
+            std::cerr << "Encoder output is not a tensor" << std::endl;
+            return {};
+        }
+        
+        auto output_tensor = output_evalue.toTensor();
+        
+        // Copy output data
+        size_t output_size = output_tensor.numel();
+        std::vector<float> features(output_size);
+        const float* output_data = output_tensor.const_data_ptr<float>();
+        std::memcpy(features.data(), output_data, output_size * sizeof(float));
+        
+        // Store dimensions for later use
+        n_audio_ctx_ = output_tensor.size(1);
+        n_audio_state_ = output_tensor.size(2);
+        
         return features;
     }
     
-    std::vector<int> decode(const std::vector<float>& features, 
+    // Decode tokens autoregressively
+    std::vector<int> decode(const std::vector<float>& audio_features,
                            const std::vector<int>& initial_tokens,
+                           const whisper::Tokenizer& tokenizer,
                            int max_tokens) {
-        // Implementation would use ExecuTorch API
-        // This is a placeholder
-        return initial_tokens;
+        std::vector<int> tokens = initial_tokens;
+        int eot_token = tokenizer.special_tokens().eot;
+        
+        // Create audio features tensor: shape (1, n_audio_ctx, n_audio_state)
+        std::vector<int32_t> audio_shape = {1, n_audio_ctx_, n_audio_state_};
+        auto audio_tensor = et::from_blob(
+            const_cast<float*>(audio_features.data()),
+            audio_shape,
+            runtime::ScalarType::Float
+        );
+        
+        for (int i = 0; i < max_tokens; ++i) {
+            // Create token tensor: shape (1, seq_len)
+            std::vector<int64_t> token_data(tokens.begin(), tokens.end());
+            std::vector<int32_t> token_shape = {1, static_cast<int32_t>(tokens.size())};
+            auto token_tensor = et::from_blob(
+                token_data.data(),
+                token_shape,
+                runtime::ScalarType::Long
+            );
+            
+            // Run decoder
+            auto result = decoder_->forward({token_tensor, audio_tensor});
+            if (!result.ok()) {
+                std::cerr << "Decoder forward failed at step " << i << std::endl;
+                break;
+            }
+            
+            auto& outputs = result.get();
+            if (outputs.empty() || !outputs[0].isTensor()) {
+                std::cerr << "Invalid decoder output at step " << i << std::endl;
+                break;
+            }
+            
+            auto logits_tensor = outputs[0].toTensor();
+            
+            // Get logits for the last token: shape (1, seq_len, vocab_size) -> (vocab_size,)
+            int seq_len = logits_tensor.size(1);
+            int vocab_size = logits_tensor.size(2);
+            const float* logits_data = logits_tensor.const_data_ptr<float>();
+            
+            // Find argmax of last position
+            const float* last_logits = logits_data + (seq_len - 1) * vocab_size;
+            int next_token = 0;
+            float max_val = last_logits[0];
+            for (int j = 1; j < vocab_size; ++j) {
+                if (last_logits[j] > max_val) {
+                    max_val = last_logits[j];
+                    next_token = j;
+                }
+            }
+            
+            // Check for end of text
+            if (next_token == eot_token) {
+                break;
+            }
+            
+            tokens.push_back(next_token);
+        }
+        
+        return tokens;
     }
+    
+    bool is_loaded() const { return loaded_; }
 
 private:
-    std::unique_ptr<executorch::runtime::Program> encoder_program_;
-    std::unique_ptr<executorch::runtime::Program> decoder_program_;
+    std::unique_ptr<et::Module> encoder_;
+    std::unique_ptr<et::Module> decoder_;
+    bool loaded_ = false;
+    int n_audio_ctx_ = 1500;
+    int n_audio_state_ = 512;  // Will be updated after encode()
 };
 
 #else
-// LibTorch inference
+// LibTorch inference implementation
 class WhisperModelPT {
 public:
     bool load(const std::string& encoder_path, const std::string& decoder_path) {
@@ -318,26 +415,30 @@ int main(int argc, char* argv[]) {
     fs::path model_path(config.model_path);
     std::string encoder_path, decoder_path;
     
+#ifdef USE_EXECUTORCH
+    // ExecuTorch uses .pte files
     if (model_path.extension() == ".pte") {
-        // ExecuTorch format
-        encoder_path = model_path.parent_path() / (model_path.stem().string() + ".encoder.pte");
-        decoder_path = model_path.parent_path() / (model_path.stem().string() + ".decoder.pte");
-    } else if (model_path.extension() == ".pt") {
-        // TorchScript format
-        encoder_path = model_path.parent_path() / (model_path.stem().string() + ".encoder.pt");
-        decoder_path = model_path.parent_path() / (model_path.stem().string() + ".decoder.pt");
+        encoder_path = (model_path.parent_path() / (model_path.stem().string() + ".encoder.pte")).string();
+        decoder_path = (model_path.parent_path() / (model_path.stem().string() + ".decoder.pte")).string();
     } else {
         // Assume base path provided
+        encoder_path = config.model_path + ".encoder.pte";
+        decoder_path = config.model_path + ".decoder.pte";
+    }
+#else
+    // LibTorch uses .pt files
+    if (model_path.extension() == ".pt") {
+        encoder_path = (model_path.parent_path() / (model_path.stem().string() + ".encoder.pt")).string();
+        decoder_path = (model_path.parent_path() / (model_path.stem().string() + ".decoder.pt")).string();
+    } else if (model_path.extension() == ".pte") {
+        // Try .pt versions if .pte requested but using LibTorch
+        encoder_path = (model_path.parent_path() / (model_path.stem().string() + ".encoder.pt")).string();
+        decoder_path = (model_path.parent_path() / (model_path.stem().string() + ".decoder.pt")).string();
+    } else {
         encoder_path = config.model_path + ".encoder.pt";
         decoder_path = config.model_path + ".decoder.pt";
     }
-    
-    // Check if encoder exists, try alternate paths
-    if (!fs::exists(encoder_path)) {
-        // Try with .pt extension
-        encoder_path = model_path.parent_path() / (model_path.stem().string() + ".encoder.pt");
-        decoder_path = model_path.parent_path() / (model_path.stem().string() + ".decoder.pt");
-    }
+#endif
     
     if (!fs::exists(encoder_path)) {
         std::cerr << "Error: Encoder model not found: " << encoder_path << std::endl;
@@ -371,7 +472,6 @@ int main(int argc, char* argv[]) {
     
     float total_audio_duration = audio_processor.get_last_audio_duration();
     
-#ifndef USE_EXECUTORCH
     std::string full_transcription;
     
     // Process each chunk
@@ -380,6 +480,40 @@ int main(int argc, char* argv[]) {
         
         std::cout << "\n[Chunk " << (chunk_idx + 1) << "/" << mel_chunks.size() << "]" << std::endl;
         
+        if (config.verbose) {
+            std::cout << "Mel shape: (" << mel.n_mels << ", " << mel.n_frames << ")" << std::endl;
+        }
+        
+#ifdef USE_EXECUTORCH
+        // ExecuTorch path
+        std::cout << "Encoding audio..." << std::endl;
+        auto audio_features = model.encode(mel.data, mel.n_mels, mel.n_frames);
+        
+        if (audio_features.empty()) {
+            std::cerr << "Error: Encoding failed" << std::endl;
+            continue;
+        }
+        
+        if (config.verbose) {
+            std::cout << "Audio features size: " << audio_features.size() << std::endl;
+        }
+        
+        // Get initial tokens
+        auto initial_tokens = tokenizer.get_initial_tokens(
+            config.language, config.task, config.timestamps
+        );
+        
+        if (config.verbose) {
+            std::cout << "Initial tokens: ";
+            for (int t : initial_tokens) std::cout << t << " ";
+            std::cout << std::endl;
+        }
+        
+        // Decode
+        std::cout << "Decoding..." << std::endl;
+        auto output_tokens = model.decode(audio_features, initial_tokens, tokenizer, config.max_tokens);
+#else
+        // LibTorch path
         // Convert mel spectrogram to tensor (batch, n_mels, n_frames)
         auto mel_tensor = torch::from_blob(
             mel.data.data(),
@@ -413,6 +547,7 @@ int main(int argc, char* argv[]) {
         // Decode
         std::cout << "Decoding..." << std::endl;
         auto output_tokens = model.decode(audio_features, initial_tokens, tokenizer, config.max_tokens);
+#endif
         
         if (config.verbose) {
             std::cout << "Output tokens (" << output_tokens.size() << "): ";
@@ -432,18 +567,12 @@ int main(int argc, char* argv[]) {
         full_transcription += chunk_text;
     }
     
-    std::string transcription = full_transcription;
-#else
-    // ExecuTorch path (placeholder)
-    std::string transcription = "[ExecuTorch inference not fully implemented]";
-#endif
-    
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
     
     // Prepare result
     TranscriptionResult result;
-    result.text = transcription;
+    result.text = full_transcription;
     result.language = config.language;
     result.duration_seconds = total_audio_duration;
     result.processing_time_seconds = duration.count() / 1000.0;

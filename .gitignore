@@ -131,3 +131,5 @@ mlruns/
 # Compiled files
 *.pyc
 *.pyo
+*.pte
+models/
