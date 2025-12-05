@@ -1,41 +1,73 @@
 # Whisper Runner
-
-This directory hosts a lightweight C++ helper that drives Whisper models
-exported to ExecuTorch. The `AsrRunner` owns the `Module` instance that
-wraps a bundled `.pte` program and optional `.ptd` weight file, loads the
-`encoder` and `text_decoder` methods, and exposes a `transcribe()` loop that
-streams decoded text pieces through a callback.
-
-The runner assumes:
-- `model.pte` contains both Whisper encoder and decoder entry points named
-  `encoder` and `text_decoder`.
-- (Optional) Depending on export configurations, model weights can be optionally stored in a companion
-  `model.ptd`. The runner will load the file if present.
-- A tokenizer JSON compatible with the ExecuTorch tokenizers shim is available.
-
-Audio preprocessing is not part of the runner itself. To transform raw audio
-into the mel features expected by the encoder, reuse the pattern in
-`examples/models/voxtral/multimodal.cpp`, which loads a `preprocessor.pte`
-module to generate the spectrogram tensor.
+This is the real README to run whisper on my laptop. 
 
 ## Build
-
-Currently we have CUDA and Metal build support.
-
-For CPU:
+First, git clone so that the cmake link and all other paths are ready 
+```bash
+git clone --recursive https://github.com/pytorch/executorch.git
+cd executorch
 ```
-make whisper-cpu
+The best way to build the Whisper runner is to use the git repo of ExecuTorch itself. They do use many other submodules. 
+
+Then we need conda to install cuda toolkit and other dependencies.
+```bash
+conda create -n executorch python=3.11 -y
+conda activate executorch
+conda install cmake -y 
+conda install cuda-toolkit -c nvidia/label/cuda-12.8.0 -y 
 ```
+
+Then install the python dependencies. This is purely for exporting the model and preparing the audio. The runner itself is in C++. 
+
+```bash
+pip install uv 
+
+# Go into the install_dev and change the nightly into this. If you don't, the new support of cuda won't work. 
+# def install_torch_nightly_deps():
+#     """Install torch related dependencies from pinned nightly"""
+#     EXECUTORCH_NIGHTLY_VERSION = "dev20251204"
+#     TORCHAO_NIGHTLY_VERSION = "dev20251104"
+#     # Torch nightly is aligned with pinned nightly in https://github.com/pytorch/executorch/blob/main/torch_pin.py#L2
+#     TORCH_NIGHTLY_VERSION = "dev20251104"
+#     subprocess.check_call(
+#         [
+#             sys.executable,
+#             "-m",
+#             "uv",
+#             "pip",
+#             "install",
+#             f"torch==2.10.0.{TORCH_NIGHTLY_VERSION}",
+#             f"torchvision==0.25.0.{TORCH_NIGHTLY_VERSION}",
+#             f"torchaudio==2.10.0.{TORCH_NIGHTLY_VERSION}",
+#             f"torchao==0.15.0.{TORCHAO_NIGHTLY_VERSION}",
+#             "--extra-index-url",
+#             "https://download.pytorch.org/whl/nightly/cu128",
+#         ]
+#     )
+#     subprocess.check_call(
+#         [
+#             sys.executable,
+#             "-m",
+#             "pip",
+#             "install",
+#             f"executorch==1.1.0.{EXECUTORCH_NIGHTLY_VERSION}",
+#             "--extra-index-url",
+#             "https://download.pytorch.org/whl/nightly/cpu",
+#         ]
+#     )
+git clone https://github.com/huggingface/optimum-executorch.git
+cd optimum-executorch
+pip install '.[dev]'
+python install_dev.py
+cd .. 
+```
+
 
 For CUDA:
 ```
 make whisper-cuda
 ```
 
-For Metal:
-```
-make whisper-metal
-```
 
 ## Usage
 
@@ -44,8 +76,14 @@ make whisper-metal
 Use [Optimum-ExecuTorch](https://github.com/huggingface/optimum-executorch) to export a Whisper model from Hugging Face:
 
 #### CUDA backend:
-
+Keep the environment above activated, then run (pardon me the long list of exports):
 ```bash
+export CUDA_HOME=/home/ptthang/miniforge3/envs/executorch/
+export PATH=$CUDA_HOME/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+export CPATH=$CPATH:/home/ptthang/miniforge3/envs/executorch/targets/x86_64-linux/include
+export C_INCLUDE_PATH=$C_INCLUDE_PATH:/home/ptthang/miniforge3/envs/executorch/targets/x86_64-linux/include
+export CPLUS_INCLUDE_PATH=$CPLUS_INCLUDE_PATH:/home/ptthang/miniforge3/envs/executorch/targets/x86_64-linux/include
 optimum-cli export executorch \
     --model openai/whisper-small \
     --task automatic-speech-recognition \
@@ -59,20 +97,6 @@ This command generates:
 - `model.pte` — Compiled Whisper model
 - `aoti_cuda_blob.ptd` — Weight data file for CUDA backend
 
-#### Metal backend:
-
-```bash
-optimum-cli export executorch \
-    --model openai/whisper-small \
-    --task automatic-speech-recognition \
-    --recipe metal \
-    --dtype bfloat16 \
-    --output_dir ./
-```
-
-This command generates:
-- `model.pte` — Compiled Whisper model
-- `aoti_metal_blob.ptd` — Weight data file for Metal backend
 
 ### Preprocessor
 
@@ -141,28 +165,12 @@ After building the runner (see [Build](#build) section), execute it with the exp
 #### CUDA backend:
 
 ```bash
-# Set library path for CUDA dependencies
-export LD_LIBRARY_PATH=/opt/conda/lib:$LD_LIBRARY_PATH
-
 # Run the Whisper runner
 cmake-out/examples/models/whisper/whisper_runner \
-    --model_path model.pte \
-    --data_path aoti_cuda_blob.ptd \
-    --tokenizer_path ./ \
-    --audio_path output.wav \
-    --processor_path whisper_preprocessor.pte \
-    --temperature 0
-```
-
-#### Metal backend:
-
-```bash
-# Run the Whisper runner
-cmake-out/examples/models/whisper/whisper_runner \
-    --model_path model.pte \
-    --data_path aoti_metal_blob.ptd \
-    --tokenizer_path ./ \
-    --audio_path output.wav \
-    --processor_path whisper_preprocessor.pte \
+    --model_path ../model.pte \
+    --data_path ../aoti_cuda_blob.ptd \
+    --tokenizer_path ../ \
+    --audio_path ../output.wav \
+    --processor_path ../whisper_preprocessor.pte \
     --temperature 0
 ```
