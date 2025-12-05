@@ -1,5 +1,5 @@
 # Whisper Runner
-This is the real README to run whisper on my laptop. 
+This is the real README to run whisper on my laptop. Originally from ExecuTorch repo [here](https://github.com/pytorch/executorch/blob/main/examples/models/whisper/README.md)
 
 ## Build
 First, git clone so that the cmake link and all other paths are ready 
