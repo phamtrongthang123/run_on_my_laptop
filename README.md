@@ -164,8 +164,14 @@ After building the runner (see [Build](#build) section), execute it with the exp
 
 #### CUDA backend:
 
+
 ```bash
-# Run the Whisper runner
+# If you run with the same environment, you don't need those lines below. But if you, like me, copy the built whisper_runner somewhere else (laptop),
+# you need to set the CUDA paths again. And remember to download libaoti_cuda_shims.so and put it in the same folder as whisper_runner
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:./
+export CUDA_HOME=/home/ptthang/miniconda3/envs/executorch/
+export LD_LIBRARY_PATH=$CUDA_HOME/lib:$LD_LIBRARY_PATH # it really depends, sometimes lib64
+
 cmake-out/examples/models/whisper/whisper_runner \
     --model_path ../model.pte \
     --data_path ../aoti_cuda_blob.ptd \
@@ -173,4 +179,41 @@ cmake-out/examples/models/whisper/whisper_runner \
     --audio_path ../output.wav \
     --processor_path ../whisper_preprocessor.pte \
     --temperature 0
+```
+
+And hopefully you will see the transcription output:
+```bash
+(executorch) ptthang@ProfThang:/mnt/c/Users/phamt/Downloads/whisper$ ./whisper_runner     --model_path ./model.pte     --data_path ./aoti_cuda_blob.ptd     --tokenizer_path ./     --audio_path output.wav     --processor_path whisper_preproc
+essor.pte     --temperature 0
+I tokenizers:regex.cpp:27] Registering override fallback regex
+I tokenizers:hf_tokenizer.cpp:142] Setting up normalizer...
+I tokenizers:hf_tokenizer.cpp:148] Normalizer field is null, skipping
+I tokenizers:hf_tokenizer.cpp:160] Setting up pretokenizer...
+I tokenizers:hf_tokenizer.cpp:164] Pretokenizer set up
+I tokenizers:hf_tokenizer.cpp:180] Loading BPE merges...
+I tokenizers:hf_tokenizer.cpp:215] Loaded 0 BPE merge rules
+I tokenizers:hf_tokenizer.cpp:227] Built merge ranks map with 0 entries
+I tokenizers:hf_tokenizer.cpp:256] Loaded tokens from special_tokens_map.json: bos='<|endoftext|>', eos='<|endoftext|>'
+<|en|><|transcribe|><|0.00|> Mr. Quilter is the apostle of the middle classes, and we are glad to welcome his gospel.<|6.60|><|6.60|> Nor is Mr. Quilter's manner less interesting than his matter.<|11.30|><|11.30|> He tells us that at this festive season of the year, with Christmas and roast beef looming<|16.86|><|16.86|> before us, simile is drawn from eating and its results occur most readily to the mind.<|23.80|><|23.80|> He has grave doubts whether Sir Frederick Layton's work is really Greek after all, and can discover<|29.98|><|29.98|><|endoftext|>
+PyTorchObserver {"prompt_tokens":0,"generated_tokens":109,"model_load_start_ms":1764907778897,"model_load_end_ms":1764907783864,"inference_start_ms":1764907783864,"inference_end_ms":1764907785270,"prompt_eval_end_ms":1764907784100,"first_token_ms":1764907784127,"aggregate_sampling_time_ms":0,"SCALING_FACTOR_UNITS_PER_SECOND":1000}
+```
+
+The size is ~500MB in total. 
+```bash
+(executorch) ptthang@ProfThang:/mnt/c/Users/phamt/Downloads/whisper$ ls
+aoti_cuda_blob.ptd     model.pte   output2.wav              tokenizer.json         whisper_preprocessor.pte
+libaoti_cuda_shims.so  output.wav  special_tokens_map.json  tokenizer_config.json  whisper_runner
+
+(executorch) ptthang@ProfThang:/mnt/c/Users/phamt/Downloads/whisper$ ls -lh
+total 522M
+-rwxrwxrwx 1 ptthang ptthang 498M Dec  4 21:46 aoti_cuda_blob.ptd
+-rwxrwxrwx 1 ptthang ptthang  72K Dec  4 21:50 libaoti_cuda_shims.so
+-rwxrwxrwx 1 ptthang ptthang 2.6M Dec  4 21:42 model.pte
+-rwxrwxrwx 1 ptthang ptthang 938K Dec  4 22:09 output.wav
+-rwxrwxrwx 1 ptthang ptthang 938K Dec  4 21:46 output2.wav
+-rwxrwxrwx 1 ptthang ptthang 2.2K Dec  4 21:46 special_tokens_map.json
+-rwxrwxrwx 1 ptthang ptthang 2.4M Dec  4 21:46 tokenizer.json
+-rwxrwxrwx 1 ptthang ptthang 277K Dec  4 21:46 tokenizer_config.json
+-rwxrwxrwx 1 ptthang ptthang  78K Dec  4 21:46 whisper_preprocessor.pte
+-rwxrwxrwx 1 ptthang ptthang  18M Dec  4 21:47 whisper_runner
 ```
