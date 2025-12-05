@@ -111,25 +111,6 @@ python -m executorch.extension.audio.mel_spectrogram \
     --output_file whisper_preprocessor.pte
 ```
 
-### Quantization
-
-Export quantized models to reduce size and improve performance (Not enabled for Metal yet):
-
-```bash
-# 4-bit tile packed quantization for encoder
-optimum-cli export executorch \
-    --model openai/whisper-small \
-    --task automatic-speech-recognition \
-    --recipe cuda \
-    --dtype bfloat16 \
-    --device cuda \
-    --qlinear 4w \
-    --qlinear_encoder 4w \
-    --qlinear_packing_format tile_packed_to_4d \
-    --qlinear_encoder_packing_format tile_packed_to_4d \
-    --output_dir ./
-```
-
 
 ### Download Tokenizer
 
@@ -140,13 +121,6 @@ Download the tokenizer files required for inference according to your model vers
 curl -L https://huggingface.co/openai/whisper-small/resolve/main/tokenizer.json -o tokenizer.json
 curl -L https://huggingface.co/openai/whisper-small/resolve/main/tokenizer_config.json -o tokenizer_config.json
 curl -L https://huggingface.co/openai/whisper-small/resolve/main/special_tokens_map.json -o special_tokens_map.json
-```
-
-**For Whisper Large v2:**
-```bash
-curl -L https://huggingface.co/openai/whisper-large-v2/resolve/main/tokenizer.json -o tokenizer.json
-curl -L https://huggingface.co/openai/whisper-large-v2/resolve/main/tokenizer_config.json -o tokenizer_config.json
-curl -L https://huggingface.co/openai/whisper-large-v2/resolve/main/special_tokens_map.json -o special_tokens_map.json
 ```
 
 ### Prepare Audio
